@@ -1,0 +1,54 @@
+# Steps:
+# Install git
+# Install docker
+# install docker compose 
+# Download docker image for jenkins
+# create docker container for jenkins
+
+# isnatll git 
+sudo yum update && sudo yum install git -y
+git version
+
+# Install docker https://www.cyberciti.biz/faq/how-to-install-docker-on-amazon-linux-2/
+## Install docker, check docker verion, add group membership for default user (ec2-user) and validate
+sudo yum update && sudo yum install docker -y && docker --version && sudo usermod -a -G docker ec2-user && id ec2-user
+sudo systemctl enable docker.service
+sudo systemctl start docker.service
+sudo systemctl status docker.service
+
+# Install docker compose
+sudo yum install python3-pip
+pip3 install --user docker-compose 
+echo 'PATH="$PATH:$HOME/.local/bin"' >> ~/.bashrc
+docker-compose --version
+
+# Download docker image for jenkins
+docker pull jenkins/jenkins
+docker images # check for docker images downloaded
+docker info | grep -i root # where docker is saving the images
+
+# docker compose file for jenkins
+mkdir jenkins-data && cd $_ && mkdir jenkins_home
+vi docker-compose.yml
+#### content of docker compose file ####
+version: '3'
+services:
+  jenkins:
+    container_name: jenkins
+    image: jenkins/jenkins
+    ports:
+      - "8080:8080"
+    volumes: 
+      - $PWD/jenkins_home:/var/jenkins_home
+    networks:
+      - net
+networks:
+  net:
+########################################
+
+# create docker container for jenkins
+docker-compose up -d # spin up container
+docker ps # list container
+docker logs -f jenkins # show log to get the password for installation. command format docker logs -f <container name>
+<ip address>:8080 # access jenkins with ec2 public ip address & enter password from above step
+username = admin pwd = jk1234567oie # create admin user 
