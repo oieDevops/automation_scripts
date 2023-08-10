@@ -1,11 +1,26 @@
+### ANSIBLE CONFIGURATION SET UP ##
 
-####### RHEL Server #######
+## ANSIBLE CONTROL NODE
+## STEP 1: create ansible user, add to sudo doers, configure sshd, install python
 sudo su 
-dnf upgrade && dnf update && yum update && yum install git -y
+yum upgrade -y && yum update -y && yum install git -y
+# create ansible user
 useradd ansadmin && echo dev123 | passwd ansadmin --stdin
+# add user to sudo doers
 echo "ansadmin  ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/ansadmin
-echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
-exit
+# configure /etc/ssh/sshd_config for ssh key authentication
+sudo vi /etc/ssh/sshd_config
+# ensure the following are set in /etc/ssh/sshd_config
+PasswordAuthentication = yes 
+PermitRootLogin = no
+PubkeyAuthentication = yes
+UsePAM = yes
+# Comment out the GSSAPI-related options by adding the hash sign at the beginning of the line:
+GSSAPIAuthentication yes #comment out
+GSSAPICleanupCredentials no #comment out
+# restart sshd
+sudo systemctl restart sshd
+# install python
 su ansadmin
 cd ~
 sudo yum install gcc openssl-devel bzip2-devel libffi-devel zlib-devel -y 
@@ -13,53 +28,95 @@ wget https://www.python.org/ftp/python/3.11.4/Python-3.11.4.tgz
 tar xzf Python-3.11.4.tgz 
 cd Python-3.11.4/
 sudo ./configure --enable-optimizations 
-sudo make altinstall 
-sudo rm -f /home/ansadmin/Python-3.11.4.tgz 
-echo 'export PATH=/usr/local/bin:$PATH' >> ~/.bash_profile
-source ~/.bash_profile
-curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-python3 get-pip.py --user
-python3 -m pip install --user ansible
-# Set up SSH with ionstructions below
-
-
-####### Amazon linux #######
-sudo su 
-yum upgrade && yum update && yum install git -y
-useradd ansadmin && echo dev123 | passwd ansadmin --stdin
-echo "ansadmin  ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/ansadmin
-echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
-exit
-su ansadmin
-cd ~
-sudo yum install gcc openssl-devel bzip2-devel libffi-devel zlib-devel -y 
-wget https://www.python.org/ftp/python/3.11.4/Python-3.11.4.tgz 
-tar xzf Python-3.11.4.tgz 
-cd Python-3.11.4/
-sudo ./configure --enable-optimizations 
+sudo make
 sudo make altinstall 
 cd .. && sudo rm -f /home/ansadmin/Python-3.11.4.tgz 
 echo 'export PATH=/usr/local/bin:$PATH' >> ~/.bash_profile
 source ~/.bash_profile
 curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-python3 get-pip.py --user
-python3 -m pip install --user ansible
 
-
-### FOR SSH setup = https://phoenixnap.com/kb/ssh-permission-denied-publickey
-ssh-keygen
-cat "id_rsa.pub" >> authorized_keys
-chmod 0600 /home/ansadmin/.ssh/authorized_keys
+## MANAGED NODE
+# STEP 2: create ansible user, add to sudo doers, configure sshd
+sudo su 
+yum upgrade -y && yum update -y && yum install git -y
+# create ansible user
+useradd ansadmin && echo dev123 | passwd ansadmin --stdin
+# add user to sudo doers
+echo "ansadmin  ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/ansadmin
+# configure /etc/ssh/sshd_config for ssh key authentication
 sudo vi /etc/ssh/sshd_config
-# In the sshd_config file, make sure the following options are set as follows:
-PermitRootLogin no
-PubkeyAuthentication yes
+# ensure the following are set in /etc/ssh/sshd_config
+PasswordAuthentication = yes 
+PermitRootLogin = no
+PubkeyAuthentication = yes
+UsePAM = yes
 # Comment out the GSSAPI-related options by adding the hash sign at the beginning of the line:
-# GSSAPIAuthentication yes
-# GSSAPICleanupCredentials no
-# make sure the UsePAM line is set to yes:
-UsePAM yes
+GSSAPIAuthentication yes #comment out
+GSSAPICleanupCredentials no #comment out
+# restart sshd
+sudo systemctl restart sshd
 
-systemctl restart sshd
+## ANSIBLE CONTROL NODE
+## STEP3: DISTRIBUTE SSH-KEY FROM CONTROL NODE TO MANAGED NODE
+# create ssh-key
+ssh-keygen
+# copy public key to managed node
+ssh-copy-id -i /home/ansadmin/.ssh/id_rsa ansadmin@<ip address of remote server>
+# test connection
+ssh -i /home/ansadmin/.ssh/id_rsa ansadmin@10.0.1.15
+
+## ANSIBLE CONTROL NODE
+## STEP4: SETUP PYTHON ENVIRONMENT
+python3 -m venv ansible-env
+source ansible-env/bin/activate
+python3 -m pip install --upgrade pip
+python3 -m pip install ansible
+python3 -m pip install boto3
+ansible --version
+deactivate
+
+## ANSIBLE CONTROL NODE
+## STEP5: SETUP ANSIBLE CONFIG FILE, DYNAMIC INVENTORY, AND ANSIBLE STATIC  
+# sample ansible.cfg
+[defaults]
+enable_plugins = aws_ec2
+host_key_checking = False
+pipelining = True
+remote_user = ansadmin
+#private_key_file=/pem/key-pem
+
+# create my_aws_ec2.yml for dynamic inventory plugin
+---
+plugin: aws_ec2
+regions:
+  - us-east-1
+# validate dynamic inv plugin
+ansible-inventory -i aws_ec2.yml --list
+
+# Ansible static inventory for aws
+all:
+  vars:
+    ansible_user: ansadmin # ansible connection variables
+  children:
+    ansible:
+      hosts:
+        controlNode:
+          ansible_host: 10.0.1.128
+    remoteNodes:
+      hosts:
+        remoteNode-0:
+          ansible_host: 10.0.1.15
+        remoteNode-1:
+          ansible_host: 10.0.1.199
+        remoteNode-2:
+          ansible_host: 10.0.1.44
+
+# test connection
+ansible-inventory -i inv.yml --list
+ansible remoteNodes -m ping -i inv.yml
 
 
+### REF FOR TROUBLESHOOTIING ### 
+# https://phoenixnap.com/kb/ssh-permission-denied-publickey 
+# https://www.tecmint.com/ssh-permission-denied-publickey/#:~:text=Cause%20of%20SSH%20Permission%20denied,file%20on%20the%20remote%20system
+# https://docs.ansible.com/ansible/latest/collections/amazon/aws/aws_ec2_inventory.html
