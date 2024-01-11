@@ -1,0 +1,15 @@
+
+# Set a variable to cert bundle name
+cert="example.com.p12"
+
+# Extract the private key
+openssl pkcs12 -in $cert -nocerts -nodes | sed -ne '/-BEGIN PRIVATE KEY-/,/-END PRIVATE KEY-/p' > private.key
+
+# Extract the certificate
+openssl pkcs12 -in $cert -clcerts -nokeys | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' > cert.pem
+
+# Extract the CA chain certificate(s)
+openssl pkcs12 -in $cert -cacerts -nokeys -chain | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' > ca-chain.pem
+
+# Verify the server certificate is signed by chain certificate
+openssl verify -CAfile ca-chain.pem cert.pem
